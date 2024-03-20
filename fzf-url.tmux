@@ -18,6 +18,7 @@ key="$(tmux_get '@fzf-url-bind' 'u')"
 history_limit="$(tmux_get '@fzf-url-history-limit' 'screen')"
 extra_filter="$(tmux_get '@fzf-url-extra-filter' '')"
 custom_open="$(tmux_get '@fzf-url-open' '')"
-echo "$extra_filter" > /tmp/filter
+sort_cmd="$(tmux_get '@fzf-url-sort-cmd' 'sort -u -t: -k2')"
+preview_enabled="$(tmux_get '@fzf-url-fzf-preview' false)"
 
-tmux bind-key "$key" run -b "$SCRIPT_DIR/fzf-url.sh '$extra_filter' $history_limit '$custom_open'";
+tmux bind-key "$key" run -b "$SCRIPT_DIR/fzf-url.sh '$extra_filter' $history_limit '$custom_open' '$sort_cmd' '$preview_enabled'";
