@@ -1,5 +1,7 @@
 # README
 
+![demo](https://github.com/BartSte/tmux-fzf-url/raw/master/demo.gif)
+
 This is a fork of [wfxr/tmux-fzf-url](https://github.com/wfxr/tmux-fzf-url) with
 a set of features added to it as is explained below. The goal is to keep this
 repo up-to-date with the original one, and extend it with new features were
@@ -18,8 +20,6 @@ The following features have been added to this fork:
 
   Note that it may be desirable to set a custom sort command, as is explained
   below.
-
-  **TODO**: add GIF
 
 - **sort command**: after searching the tmux buffer, the results are presented
   in the following format: `line_number:match`. Here `line_number` is the line
