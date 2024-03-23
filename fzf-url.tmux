@@ -16,9 +16,14 @@ tmux_get() {
 
 key="$(tmux_get '@fzf-url-bind' 'u')"
 history_limit="$(tmux_get '@fzf-url-history-limit' 'screen')"
-extra_filter="$(tmux_get '@fzf-url-extra-filter' '')"
-custom_open="$(tmux_get '@fzf-url-open' '')"
+filter="$(tmux_get '@fzf-url-filter' '')"
+open="$(tmux_get '@fzf-url-open' $BROWSER)"
 sort_cmd="$(tmux_get '@fzf-url-sort-cmd' 'sort -u -t: -k2')"
 preview_enabled="$(tmux_get '@fzf-url-fzf-preview' false)"
 
-tmux bind-key "$key" run -b "$SCRIPT_DIR/fzf-url.sh '$extra_filter' $history_limit '$custom_open' '$sort_cmd' '$preview_enabled'";
+tmux bind-key "$key" run -b "$SCRIPT_DIR/fzf-url.sh \
+    '$filter' \
+    $history_limit \
+    '$open' \
+    '$sort_cmd' \
+    '$preview_enabled'"

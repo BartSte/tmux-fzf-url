@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-#===============================================================================
-#   Author: Wenxuan
-#    Email: wenxuangm@gmail.com
-#  Created: 2018-04-06 12:12
-#===============================================================================
+set -euo pipefail
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CONTENT_FILE="/tmp/tmux-fzf-url-content"
 
@@ -38,18 +35,6 @@ fzf_filter() {
         eval "fzf-tmux --preview '$preview_cmd' $(get_fzf_options)"
     else
         eval "fzf-tmux $(get_fzf_options)"
-    fi
-}
-
-open_url() {
-    if [[ -n $custom_open ]]; then
-        $custom_open "$@"
-    elif hash xdg-open &>/dev/null; then
-        nohup xdg-open "$@"
-    elif hash open &>/dev/null; then
-        nohup open "$@"
-    elif [[ -n $BROWSER ]]; then
-        nohup "$BROWSER" "$@"
     fi
 }
 
@@ -92,34 +77,22 @@ else
     content="$(tmux capture-pane -J -p -e -S -"$limit")"
 fi
 
-re_line="[0-9]\+:"
-re_line_extended="[0-9]+:"
-urls=$(echo "$content" | grep -noE '(https?|ftp|file):/?//[-A-Za-z0-9+&@#/%?=~_|!:,.;]*[-A-Za-z0-9+&@#/%=~_|]')
-wwws=$(echo "$content" | grep -noE '(http?s://)?www\.[a-zA-Z](-?[a-zA-Z0-9])+\.[a-zA-Z]{2,}(/\S+)*' | grep -vE "^${re_line_extended}https?://" | sed "s/^\(${re_line}\)\(.*\)$/\1http:\/\/\2/")
-ips=$(echo "$content" | grep -noE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(:[0-9]{1,5})?(/\S+)*' | sed "s/^\(${re_line}\)\(.*\)$/\1http:\/\/\2/")
-gits=$(echo "$content" | grep -noE '(ssh://)?git@\S*' | sed "s/:/\//g" | sed "s/^\([0-9]\+\)\(\/\)/\1:/" | sed "s/^\(${re_line}\)\(ssh\/\/\/\)\{0,1\}git@\(.*\)$/\1https:\/\/\3/")
-gh=$(echo "$content" | grep -noE "['\"]([_A-Za-z0-9-]*/[_.A-Za-z0-9-]*)['\"]" | sed "s/['\"]//g" | sed "s#^\(${re_line}\)\(.*\)#\1https://github.com/\2#")
-
 if [[ $# -ge 1 && "$1" != '' ]]; then
     extras=$(eval "$1" <<<"$content" | ensure_line_number)
 fi
 
 items=$(
-    printf '%s\n' "${urls[@]}" "${wwws[@]}" "${gh[@]}" "${ips[@]}" "${gits[@]}" "${extras[@]}" |
-        grep -v '^$' |
-        sort_items "$sort_cmd" |
-        nl -w3 -s '  '
+    printf '%s\n' "${extras[@]}" | grep -v '^$' | sort_items "$sort_cmd"
 )
 [ -z "$items" ] && tmux display 'tmux-fzf-url: no URLs found' && exit
 
-re_index_1="\s*\([0-9]\+\)\s*"
-re_line_2="\([0-9]\+\):"
-re_match_3="\(.*\)"
-re_item="^${re_index_1}${re_line_2}${re_match_3}$"
-lines=$(sed "s/${re_item}/\2/" <<<"$items")
-indexed_matches=$(sed "s/${re_item}/\1 \3/" <<<"$items")
+re_line="\([0-9]\+\):"
+re_match="\(.*\)"
+re_item="^${re_line}${re_match}$"
+lines=$(sed "s/${re_item}/\1/" <<<"$items")
+indexed_matches=$(sed "s/${re_item}/\2/" <<<"$items")
 
-fzf_filter "$lines" "$content" <<<"$indexed_matches" | awk '{print $2}' |
+fzf_filter "$lines" "$content" <<<"$indexed_matches" | 
     while read -r chosen; do
-        open_url "$chosen" &>"/tmp/tmux-$(id -u)-fzf-url.log"
-    done
+        eval "$custom_open '$chosen'"
+    done || true
