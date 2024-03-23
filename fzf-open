@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+. "$script_dir"/regexes.sh
+
+usage="Usage: $(basename "$0")
+
+Uses a regex to extract matches from the current tmux pane. The matches are
+then passed to fzf for selection. The selected item is then passed to
+\`open_cmd\`. The default regex that is used will extract URLs and IP addresses
+from the current tmux pane.
+
+Options:
+  -h, --help  
+    Show this help message and exit.
+
+  -r, --regex <regex>  
+    The regex that is used to extract matches from the current tmux pane. The
+    default regex extracts URLs and IP addresses. It can be found in regexes.sh.
+
+  -e, --regex-extra <regex_extra>
+    Extend the regex defined by \`--regex\` with this extra regex. If \`--regex\`
+    is not set, the default regex will be extended with this extra regex.
+
+  -l, --limit <limit>  
+    The number of lines that are captured from the current tmux pane. The
+    default is 'screen'.
+
+  -o, --open-cmd <open_cmd>  
+    The command that is used to open the selected item. The default is the
+    value of the BROWSER environment variable.
+
+  -s, --sort-cmd <sort_cmd>
+    The command that is used to sort the items that are passed to fzf. The
+    default is 'sort -u -t: -k2'.
+
+  -p, --preview 
+    Enable the preview window in fzf. Disabled by default.
+
+  -v, --verbose
+    Enable verbose mode.
+
+  --logfile <logfile>
+    The file that is used to log the output of the script.
+"
+
+################################################################################
+# Parse the arguments that are passed to the script. The arguments are stored in
+# global variables.
+################################################################################
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        log "Parsing argument: $1"
+        case $1 in
+        -h | --help)
+            echo "$usage"
+            exit 0
+            ;;
+        -r | --regex)
+            regex=$2
+            log "Using regex: $regex"
+            shift
+            ;;
+        -e | --regex-extra)
+            extra_regex=$2
+            log "Using extra regex: $extra_regex"
+            shift
+            ;;
+        -l | --limit)
+            limit=$2
+            log "Using limit: $limit"
+            shift
+            ;;
+        -o | --open-cmd)
+            open_cmd=$2
+            log "Using open command: $open_cmd"
+            shift
+            ;;
+        -s | --sort-cmd)
+            sort_cmd=$2
+            log "Using sort command: $sort_cmd"
+            shift
+            ;;
+        -p | --preview)
+            preview=true
+            log "Preview is enabled."
+            ;;
+        --logfile)
+            logfile=$2
+            log "Using logfile: $logfile"
+            shift
+            ;;
+        -v | --verbose)
+            verbose=true
+            log "Verbose mode is enabled."
+            ;;
+        *)
+            log "Unknown option: $1"
+            echo "Unknown option: $1" >&2
+            echo "$usage" >&2
+            exit 1
+            ;;
+        esac
+        shift
+    done
+}
+
+################################################################################
+# Log a message to the logfile. If no message is passed, the function will read
+# from stdin. If the verbose global variable is set to true, the message is also
+# printed to stderr.
+################################################################################
+log() {
+    local msg
+    if [[ $# -gt 0 ]]; then
+        msg="$1"
+    else
+        read -r msg
+    fi
+    echo "$msg" >>"$logfile"
+    if $verbose; then
+        echo "$msg" >&2
+    fi
+}
+
+################################################################################
+# Reset the logfile. The current date is written to the logfile.
+################################################################################
+log_reset() {
+    date >"$logfile"
+}
+
+################################################################################
+# Capture the content of the current tmux pane. The limit argument is used to
+# determine how many lines are captured. If the limit is 'screen', the entire
+# screen is captured. Otherwise, the number of lines that are captured is
+# determined by the limit argument.
+################################################################################
+capture_pane() {
+    local limit=$1
+    local cmd="tmux capture-pane -J -p -e"
+    if [[ $limit != 'screen' ]]; then
+        cmd="$cmd -S -$limit"
+    fi
+    log "Capturing pane with command: $cmd"
+    eval "$cmd"
+}
+
+################################################################################
+# From stdin the content to be filtered is passed. The regex argument is used to
+# find the matches. The matches are in het format: line_number:item. The items
+# are then sorted based on the sort_cmd global variable.
+################################################################################
+find_matches() {
+    local regex=$1
+    grep -noIE "$regex" | grep -v '^$' | sort_items "$sort_cmd"
+}
+
+################################################################################
+# From stdin, the items are in the following format: line_number:item. This
+# function removes the item and only returns the line numbers.
+################################################################################
+split_lines() {
+    sed -E "s/^([0-9]+):(.*)$/\1/"
+}
+
+################################################################################
+# From stdin, the items are in the following format: line_number:item. This
+# function removes the line number and only returns the items.
+################################################################################
+split_items() {
+    sed -E "s/^([0-9]+):(.*)$/\2/"
+}
+
+################################################################################
+# From stdin, the items are in the following format: line_number:item. First,
+# duplicates are removed, i.e, matches that have the same item, and line number.
+#
+# Next, the argument that is passed to this function is used is applied to a
+# second sort command. This is to allow the user to sort the items based on
+# their preference. If the argument is empty, no extra sorting is done.
+################################################################################
+sort_items() {
+    local cmd=${1:-cat}
+    eval "sort -u | $cmd"
+}
+
+################################################################################
+# Use fzf to filter stdin. Te first argument should be the line numbers stdin
+# was found. The second argument should be the content that was used to create
+# stdin and the lines numbers. When the global variable preview_enabled is set
+# to true, a preview window will be enabled. The results can be filtered with
+# the post_filter variable, after an item is selected.
+#
+# The content is written to a temporary file, as it makes displaying it in the
+# preview window more stable when dealing with escape characters.
+################################################################################
+fzf_filter() {
+    local lines content cmd
+    lines="$1"
+    content="$2"
+    cmd="fzf-tmux $fzf_opts"
+    if $preview; then
+        log "Preview is enabled."
+        cmd="$cmd --preview '$script_dir/preview \"$lines\" {n} \"$content\"'"
+    else
+        log "Preview is disabled."
+    fi
+    log "Filtering with command: $cmd"
+    eval "$cmd"
+}
+
+################################################################################
+# Open the items from stdin. The items are opened with the command that is
+# stored in the global variable open_cmd.
+################################################################################
+open_multiple() {
+    while read -r chosen; do
+        log "Opening: $chosen"
+        eval "$open_cmd '$chosen'" >>"$logfile" &
+    done
+}
+
+main() {
+    local matches lines content
+    content="$(dirname "$(mktemp -u)")/fzf-open-content"
+    matches=$(capture_pane "$limit" | tee "$content" | find_matches "$regex|$extra_regex")
+    if [[ -z $matches ]]; then
+        log "No matches found."
+        tmux display-message "No matches found."
+    else
+        lines=$(split_lines <<<"$matches")
+        split_items <<<"$matches" | fzf_filter "$lines" "$content" | open_multiple
+    fi
+}
+
+regex="$RE_URL|$RE_WWW|$RE_IP"
+extra_regex=""
+limit="screen"
+open_cmd="${BROWSER:-""}"
+sort_cmd="sort -u -t: -k2"
+fzf_opts="${FZF_OPEN_OPTS:-'-w 100% -h 50% --multi -0'}"
+preview=false
+verbose=false
+logfile="$(dirname "$(mktemp -u)")/fzf-open.log"
+
+log_reset
+parse_args "$@"
+main || true
